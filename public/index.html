@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dialogue Frame Finder — Audio Baseline Localization</title>
+  <meta name="description" content="Locate exact video frames for spoken dialogue lines across any video URL with real-time Faster-Whisper ASR tracking and frame extraction.">
+  
+  <!-- Modern Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="/public/style.css">
+</head>
+<body>
+  <!-- Ambient background glow elements -->
+  <div class="glow-orb orb-1"></div>
+  <div class="glow-orb orb-2"></div>
+  <div class="glow-orb orb-3"></div>
+
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand-group">
+        <div class="brand-icon">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect>
+            <line x1="7" y1="2" x2="7" y2="22"></line>
+            <line x1="17" y1="2" x2="17" y2="22"></line>
+            <line x1="2" y1="12" x2="22" y2="12"></line>
+            <line x1="2" y1="7" x2="7" y2="7"></line>
+            <line x1="2" y1="17" x2="7" y2="17"></line>
+            <line x1="17" y1="17" x2="22" y2="17"></line>
+            <line x1="17" y1="7" x2="22" y2="7"></line>
+          </svg>
+        </div>
+        <div>
+          <h1 class="brand-title">Dialogue Frame Finder</h1>
+          <p class="brand-subtitle">High-precision speech localization & native frame extraction</p>
+        </div>
+      </div>
+      
+      <div class="header-badges">
+        <div class="badge status-badge" id="systemStatus">
+          <span class="status-dot"></span>
+          <span class="status-text">Engine Ready</span>
+        </div>
+        <div class="badge mode-badge">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+            <line x1="12" y1="19" x2="12" y2="22"></line>
+          </svg>
+          Faster-Whisper ASR
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content Grid -->
+    <main class="main-content">
+      <!-- Input Card -->
+      <section class="card input-card" id="inputSection">
+        <div class="card-header">
+          <div class="card-header-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+          </div>
+          <h2 class="card-title">Search Target Dialogue</h2>
+        </div>
+
+        <form id="searchForm" class="search-form">
+          <div class="form-group">
+            <label for="videoUrl">Video URL</label>
+            <div class="input-wrapper">
+              <svg class="input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+              </svg>
+              <input 
+                type="url" 
+                id="videoUrl" 
+                name="url" 
+                placeholder="https://ok.ru/video/... or https://youtube.com/watch?v=..." 
+                required 
+                autocomplete="off"
+                value="https://ok.ru/video/248244667877"
+              >
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="dialogueLine">Target Dialogue Line</label>
+            <div class="input-wrapper">
+              <svg class="input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+              </svg>
+              <input 
+                type="text" 
+                id="dialogueLine" 
+                name="line" 
+                placeholder="e.g. My mind rebels at stagnation" 
+                required 
+                autocomplete="off"
+                value="My mind rebels at stagnation"
+              >
+            </div>
+          </div>
+
+          <!-- Preset Samples Chips -->
+          <div class="samples-container">
+            <span class="samples-label">Quick Samples:</span>
+            <div class="sample-chips" id="sampleChips">
+              <button type="button" class="chip active" data-url="https://ok.ru/video/248244667877" data-line="My mind rebels at stagnation">
+                <span class="chip-dot"></span>
+                <span>Sherlock Holmes (ok.ru)</span>
+              </button>
+              <button type="button" class="chip" data-url="https://www.youtube.com/watch?v=UF8uR6Z6KLc" data-line="Stay hungry. Stay foolish.">
+                <span class="chip-dot"></span>
+                <span>Steve Jobs Speech</span>
+              </button>
+              <button type="button" class="chip" data-url="https://www.youtube.com/watch?v=8s2ODsSscWo" data-line="Hello world">
+                <span class="chip-dot"></span>
+                <span>Short Clip</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary" id="btnSubmit">
+              <span class="btn-spinner" id="btnSpinner"></span>
+              <svg class="btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="5 3 19 12 5 21 5 3"></polygon>
+              </svg>
+              <span class="btn-text" id="btnText">Locate Dialogue Frame</span>
+            </button>
+            <button type="button" class="btn btn-secondary" id="btnReset" title="Reset fields">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path>
+                <path d="M21 3v5h-5"></path>
+                <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path>
+                <path d="M8 16H3v5"></path>
+              </svg>
+              Reset
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <!-- Processing Progress Section (Shown while running) -->
+      <section class="card progress-card hidden" id="progressSection">
+        <div class="card-header">
+          <div class="card-header-icon pulse">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M22 12h-4l-3 9L9 3l-3 9H2"></path>
+            </svg>
+          </div>
+          <div class="progress-header-info">
+            <h2 class="card-title">Processing Pipeline</h2>
+            <p class="card-subtitle" id="currentActionText">Initializing pipeline...</p>
+          </div>
+          <div class="eta-badge" id="etaBadge">
+            <span class="eta-label">ETA:</span>
+            <span class="eta-value" id="etaTimer">Calculating...</span>
+          </div>
+        </div>
+
+        <!-- Overall Progress Bar -->
+        <div class="progress-bar-container">
+          <div class="progress-bar-track">
+            <div class="progress-bar-fill" id="overallProgressBar" style="width: 5%;"></div>
+            <div class="progress-bar-glow" id="progressBarGlow" style="left: 5%;"></div>
+          </div>
+          <div class="progress-meta">
+            <span class="progress-pct" id="overallProgressPct">0%</span>
+            <span class="progress-timer" id="elapsedTimer">Elapsed: 00:00</span>
+          </div>
+        </div>
+
+        <!-- Step Pipeline Stepper -->
+        <div class="pipeline-stepper" id="pipelineStepper">
+          <!-- Step 1: Ingestion -->
+          <div class="step-item" id="step-ingest">
+            <div class="step-marker">
+              <span class="step-number">1</span>
+              <svg class="step-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+              <span class="step-pulse"></span>
+            </div>
+            <div class="step-content">
+              <h3 class="step-title">Ingest & Probe</h3>
+              <p class="step-desc" id="step-ingest-desc">Downloading stream & parsing metadata</p>
+            </div>
+          </div>
+
+          <!-- Step 2: Audio Extraction -->
+          <div class="step-item" id="step-audio">
+            <div class="step-marker">
+              <span class="step-number">2</span>
+              <svg class="step-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+              <span class="step-pulse"></span>
+            </div>
+            <div class="step-content">
+              <h3 class="step-title">Audio Extraction</h3>
+              <p class="step-desc" id="step-audio-desc">Extracting 16kHz mono WAV</p>
+            </div>
+          </div>
+
+          <!-- Step 3: Faster-Whisper ASR -->
+          <div class="step-item" id="step-asr">
+            <div class="step-marker">
+              <span class="step-number">3</span>
+              <svg class="step-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+              <span class="step-pulse"></span>
+            </div>
+            <div class="step-content">
+              <h3 class="step-title">Speech Recognition</h3>
+              <p class="step-desc" id="step-asr-desc">Faster-Whisper word-level scanning</p>
+              
+              <!-- Live ASR progress details -->
+              <div class="asr-live-box hidden" id="asrLiveBox">
+                <div class="asr-sub-bar">
+                  <div class="asr-sub-fill" id="asrSubFill" style="width: 0%;"></div>
+                </div>
+                <div class="asr-ticker">
+                  <span class="ticker-label">Decoded Audio:</span>
+                  <span class="ticker-text" id="asrTickerText">"..."</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 4: Caption Cross-Check -->
+          <div class="step-item" id="step-sync">
+            <div class="step-marker">
+              <span class="step-number">4</span>
+              <svg class="step-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+              <span class="step-pulse"></span>
+            </div>
+            <div class="step-content">
+              <h3 class="step-title">Cross-Reference</h3>
+              <p class="step-desc" id="step-sync-desc">Cross-validating against captions</p>
+            </div>
+          </div>
+
+          <!-- Step 5: Frame Extraction -->
+          <div class="step-item" id="step-frame">
+            <div class="step-marker">
+              <span class="step-number">5</span>
+              <svg class="step-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+              <span class="step-pulse"></span>
+            </div>
+            <div class="step-content">
+              <h3 class="step-title">Frame Capture</h3>
+              <p class="step-desc" id="step-frame-desc">Extracting exact video frame</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Live Audio Transcription Monitor -->
+        <div class="live-transcription-card" id="liveTranscriptionCard">
+          <div class="live-asr-header">
+            <div class="live-asr-title-group">
+              <div class="soundwave-anim">
+                <span></span><span></span><span></span><span></span><span></span>
+              </div>
+              <span class="live-asr-heading">Live Audio Transcription</span>
+            </div>
+            <div class="live-asr-badges">
+              <span class="minute-pill" id="asrMinutePill">⏱ 00:00 / 00:00</span>
+              <span class="pct-pill" id="asrPctPill">0.0%</span>
+            </div>
+          </div>
+
+          <!-- Active Speaking Highlight -->
+          <div class="live-speaking-box">
+            <span class="speaking-time-tag" id="speakingTimeTag">Current Segment:</span>
+            <p class="speaking-current-text" id="speakingCurrentText">"Waiting for speech segments..."</p>
+          </div>
+
+          <!-- Rolling Transcript Feed -->
+          <div class="transcript-feed-drawer">
+            <div class="feed-header">
+              <span class="feed-title">Decoded Dialogue Stream</span>
+              <span class="feed-count" id="feedCount">0 segments</span>
+            </div>
+            <div class="transcript-feed-container" id="transcriptFeedContainer">
+              <div class="feed-empty-hint" id="feedEmptyHint">Transcribed dialogue segments will appear here with exact timestamps...</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Terminal Output Drawer -->
+        <div class="terminal-drawer">
+          <div class="terminal-header" id="terminalToggle">
+            <div class="terminal-title">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="4 17 10 11 4 5"></polyline>
+                <line x1="12" y1="19" x2="20" y2="19"></line>
+              </svg>
+              Live Execution Log
+            </div>
+            <div class="terminal-controls">
+              <span class="log-count" id="logCount">0 events</span>
+              <svg class="toggle-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </div>
+          </div>
+          <div class="terminal-body" id="terminalBody">
+            <pre class="terminal-logs" id="terminalLogs"><span class="log-line text-muted">[System] Ready to stream execution events.</span></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- Results Section (Shown upon completion) -->
+      <section class="card results-card hidden" id="resultsSection">
+        <div class="card-header">
+          <div class="card-header-icon success">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+              <polyline points="22 4 12 14.01 9 11.01"></polyline>
+            </svg>
+          </div>
+          <div class="results-header-info">
+            <h2 class="card-title">Match Located Successfully</h2>
+            <p class="card-subtitle" id="resultSubtitle">Exact dialogue timestamp and frame identified</p>
+          </div>
+        </div>
+
+        <div class="results-grid">
+          <!-- Frame Showcase Column -->
+          <div class="frame-showcase">
+            <div class="frame-preview-container" id="framePreviewWrap">
+              <img id="resultFrameImg" src="" alt="Extracted dialogue video frame" class="frame-img">
+              <div class="frame-overlay-top">
+                <span class="overlay-badge timestamp-badge" id="resBadgeTimestamp">00:00:00.000</span>
+                <span class="overlay-badge score-badge" id="resBadgeScore">100% Match</span>
+              </div>
+              <div class="frame-overlay-bottom">
+                <span class="overlay-badge frame-badge" id="resBadgeFrame">Frame #0</span>
+                <span class="overlay-badge source-badge" id="resBadgeSource">audio_speech</span>
+              </div>
+              <div class="frame-hover-prompt">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                  <line x1="11" y1="8" x2="11" y2="14"></line>
+                  <line x1="8" y1="11" x2="14" y2="11"></line>
+                </svg>
+                <span>Click to Expand</span>
+              </div>
+            </div>
+
+            <div class="frame-actions">
+              <a id="btnDownloadFrame" href="#" download="dialogue_frame.png" class="btn btn-outline">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                Download Frame Image
+              </a>
+            </div>
+          </div>
+
+          <!-- Analysis & Metrics Column -->
+          <div class="analysis-column">
+            <!-- Dialogue Comparison Card -->
+            <div class="metrics-card dialogue-match-card">
+              <h3 class="metrics-title">Dialogue Extraction</h3>
+              <div class="dialogue-comparison">
+                <div class="dialogue-row">
+                  <span class="dialogue-label">Target Line:</span>
+                  <p class="dialogue-text target-text" id="resTargetLine">"..."</p>
+                </div>
+                <div class="dialogue-row">
+                  <span class="dialogue-label">Extracted Speech:</span>
+                  <p class="dialogue-text extracted-text" id="resExtractedText">"..."</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Cross-Reference Sync Card -->
+            <div class="metrics-card sync-card" id="syncCard">
+              <h3 class="metrics-title">Cross-Reference Timing</h3>
+              <div class="sync-grid">
+                <div class="sync-item">
+                  <span class="sync-label">Spoken Audio</span>
+                  <span class="sync-value" id="syncAudioTime">--:--.---</span>
+                </div>
+                <div class="sync-item">
+                  <span class="sync-label">Inbuilt Caption</span>
+                  <span class="sync-value" id="syncCaptionTime">--:--.---</span>
+                </div>
+                <div class="sync-item">
+                  <span class="sync-label">Timing Offset</span>
+                  <span class="sync-value highlight" id="syncDelta">--</span>
+                </div>
+              </div>
+              <p class="sync-note" id="syncNote">Synchronized across signals.</p>
+            </div>
+
+            <!-- Quick Specs Grid -->
+            <div class="specs-grid">
+              <div class="spec-card">
+                <span class="spec-label">Frame Index</span>
+                <span class="spec-value" id="specFrame">0</span>
+              </div>
+              <div class="spec-card">
+                <span class="spec-label">Time in Seconds</span>
+                <span class="spec-value" id="specSec">0.00s</span>
+              </div>
+              <div class="spec-card">
+                <span class="spec-label">Video FPS</span>
+                <span class="spec-value" id="specFps">0.00</span>
+              </div>
+              <div class="spec-card">
+                <span class="spec-label">Total Duration</span>
+                <span class="spec-value" id="specDuration">0m 0s</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Raw JSON Result Block -->
+        <div class="json-inspector">
+          <div class="json-header">
+            <div class="json-title">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="16 18 22 12 16 6"></polyline>
+                <polyline points="8 6 2 12 8 18"></polyline>
+              </svg>
+              <span>Raw JSON Result (result.json)</span>
+            </div>
+            <button class="btn btn-sm btn-ghost" id="btnCopyJson">
+              <svg class="copy-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+              <span id="copyJsonText">Copy JSON</span>
+            </button>
+          </div>
+          <div class="json-body">
+            <pre class="json-code" id="jsonOutput"><code>{}</code></pre>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <p>Dialogue Frame Finder • Universal coarse-to-fine audio localization</p>
+    </footer>
+  </div>
+
+  <!-- Fullscreen Frame Lightbox Modal -->
+  <div class="modal-backdrop hidden" id="lightboxModal">
+    <div class="modal-content">
+      <button class="modal-close" id="modalClose" title="Close Lightbox">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+      <img id="lightboxImg" src="" alt="High resolution video frame" class="lightbox-img">
+      <div class="lightbox-caption" id="lightboxCaption">
+        Frame Preview
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div class="toast hidden" id="toast">
+    <span id="toastMsg">Action completed</span>
+  </div>
+
+  <script src="/public/app.js"></script>
+</body>
+</html>
