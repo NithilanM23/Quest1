@@ -8,7 +8,7 @@ class Candidate:
     start_sec: float
     end_sec: float
     text: str                     # raw extracted text (unmodified)
-    source: Literal["asr", "ocr"]
+    source: str                   # "audio_speech", "platform_caption", "asr", "ocr"
     score: float                  # rapidfuzz similarity 0-100
 
 

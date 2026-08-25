@@ -90,7 +90,7 @@ def download(url: str, outdir: Path) -> Path:
         cmd.extend(["--ffmpeg-location", ffmpeg_dir])
 
     cmd.extend([
-        "-f", "bestvideo[height<=720]+bestaudio/best[height<=720]/bestvideo+bestaudio/best",
+        "-f", "bestvideo*[height<=720]+bestaudio/best[height<=720]/bestvideo*+bestaudio/best/b",
         "--merge-output-format", "mp4",
         "--write-subs", "--write-auto-subs", "--sub-langs", "en.*",
         "-o", out_template,
