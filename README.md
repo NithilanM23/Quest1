@@ -13,6 +13,9 @@ Works with YouTube, ok.ru, Vimeo, or direct video links.
 I built a zero-touch Windows installer for a completely hassle-free setup — no manual Python, Git, or virtual environment configuration required.
 
 1. **Download**: Grab `DialogueFrameFinder_Setup.exe` from the [Releases](../../releases) tab.
+   - > [!NOTE]
+   - > **Browser Download Warning**: Because this is a newly built, unsigned `.exe` installer, your web browser (Chrome, Edge, Brave, etc.) may show a generic prompt warning that the file could be harmful and asking if you want to keep or discard it. 
+   - > This `.exe` is completely safe and open-source. To proceed, click the **arrow / three dots (dropdown)** next to the download item in your browser bar and select **"Keep"** -> **"Keep anyway"**.
 2. **Run the Installer**:
    - If Windows Defender SmartScreen pops up, click **"More info"** and then **"Run anyway"**.
    - Choose your installation directory, check **"Create a desktop shortcut"**, and click **Next** -> **Install**.
@@ -29,7 +32,7 @@ I built a zero-touch Windows installer for a completely hassle-free setup — no
 
 #### 1. Clone & Install Dependencies
 
-Make sure `ffmpeg` is installed on your system, then install the Python dependencies:
+**Prerequisites:** Python 3.10 or higher. (FFmpeg binaries are configured automatically inside the virtual environment via `static-ffmpeg`).
 
 ```bash
 git clone https://github.com/your-username/quest.git
