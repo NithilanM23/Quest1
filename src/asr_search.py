@@ -1,9 +1,13 @@
-"""Stage 1a: locate candidate timestamps via speech-to-text.
+"""Stage 1: Speech-to-Text & Dialogue Search
 
-Checks for platform-provided captions first (cheapest, most reliable).
-Falls back to faster-whisper transcription with word-level timestamps.
+Performs automated speech recognition (ASR) on extracted audio using Faster-Whisper,
+checks for embedded platform captions, and finds dialogue matches via fuzzy text matching.
 """
+import os
+import re
+import time
 from pathlib import Path
+from typing import Callable, Optional
 from rapidfuzz import fuzz
 
 from .types import Candidate
@@ -12,14 +16,11 @@ MATCH_THRESHOLD = 80.0
 
 
 def _parse_vtt_or_srt(subs_path: Path) -> list[dict]:
-    """Very small VTT/SRT parser -> list of {start, end, text}."""
-    import re
+    """Parse VTT/SRT subtitle files into structured cues: [{start, end, text}]."""
     text = subs_path.read_text(errors="ignore")
     blocks = re.split(r"\n\s*\n", text)
     cues = []
-    time_re = re.compile(
-        r"(\d{2}:\d{2}:\d{2}[.,]\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}[.,]\d{3})"
-    )
+    time_re = re.compile(r"(\d{2}:\d{2}:\d{2}[.,]\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}[.,]\d{3})")
 
     def to_sec(t: str) -> float:
         t = t.replace(",", ".")
@@ -32,26 +33,27 @@ def _parse_vtt_or_srt(subs_path: Path) -> list[dict]:
             continue
         start, end = to_sec(m.group(1)), to_sec(m.group(2))
         lines = block.strip().splitlines()
-        # drop timing line + cue index line if present
         text_lines = [l for l in lines if "-->" not in l and not l.strip().isdigit()]
         cues.append({"start": start, "end": end, "text": " ".join(text_lines).strip()})
     return cues
 
 
 def search_existing_subs(subs_path: Path, target_line: str) -> list[Candidate]:
+    """Search pre-existing subtitle cues using fuzzy matching."""
     cues = _parse_vtt_or_srt(subs_path)
     candidates = []
     for cue in cues:
         score = fuzz.partial_ratio(target_line.lower(), cue["text"].lower())
         if score >= MATCH_THRESHOLD:
             candidates.append(Candidate(
-                start_sec=cue["start"], end_sec=cue["end"],
-                text=cue["text"], source="platform_caption", score=score,
+                start_sec=cue["start"],
+                end_sec=cue["end"],
+                text=cue["text"],
+                source="platform_caption",
+                score=score,
             ))
     return sorted(candidates, key=lambda c: c.start_sec)
 
-
-from typing import Callable, Optional
 
 def transcribe_and_search(
     audio_path: Path,
@@ -60,27 +62,43 @@ def transcribe_and_search(
     total_duration: float = 0.0,
     progress_cb: Optional[Callable[[dict], None]] = None,
 ) -> list[Candidate]:
-    """Run faster-whisper with real-time percentage progress and streaming matching."""
+    """Transcribe audio with Faster-Whisper (INT8 quantized) and search for target dialogue.
+
+    Optimizations:
+    - INT8 quantization for fast CPU execution.
+    - Voice Activity Detection (VAD) to skip silence/music.
+    - Streaming sliding-window token matching.
+    - Early-exit when a confident match (>=95%) is encountered.
+    """
     from faster_whisper import WhisperModel
-    import os
-    import time
 
     start_time = time.time()
     threads = os.cpu_count() or 4
+
     if progress_cb:
-        progress_cb({"type": "stage", "stage": "asr_init", "message": f"Initializing Faster-Whisper ({model_size}) on CPU with {threads} threads..."})
+        progress_cb({
+            "type": "stage",
+            "stage": "asr_init",
+            "message": f"Initializing Faster-Whisper ({model_size}) on CPU with {threads} threads...",
+        })
     print(f"      [ASR] Initializing Faster-Whisper ({model_size}) on CPU with {threads} threads...")
+
     model = WhisperModel(model_size, device="cpu", compute_type="int8", cpu_threads=threads)
 
     if progress_cb:
-        progress_cb({"type": "stage", "stage": "asr_transcribe", "message": "Transcribing audio with Voice Activity Detection (VAD)..."})
-    print(f"      [ASR] Transcribing audio with Voice Activity Detection (VAD)...")
+        progress_cb({
+            "type": "stage",
+            "stage": "asr_transcribe",
+            "message": "Transcribing audio with Voice Activity Detection (VAD)...",
+        })
+    print("      [ASR] Transcribing audio with Voice Activity Detection (VAD)...")
+
     segments, info = model.transcribe(
         str(audio_path),
         language="en",
         word_timestamps=True,
         vad_filter=True,
-        vad_parameters=dict(min_silence_duration_ms=500)
+        vad_parameters=dict(min_silence_duration_ms=500),
     )
 
     duration = total_duration or getattr(info, "duration", 0.0)
@@ -95,6 +113,7 @@ def transcribe_and_search(
         seg_pct = min(100.0, (seg.end / duration * 100.0)) if duration > 0 else 0.0
         elapsed = time.time() - start_time
         eta_sec = (elapsed / (seg_pct / 100.0) - elapsed) if seg_pct > 2.0 else 0.0
+
         m_curr, s_curr = int(seg.end // 60), int(seg.end % 60)
         m_start, s_start = int(seg.start // 60), int(seg.start % 60)
         m_tot, s_tot = int(duration // 60), int(duration % 60) if duration > 0 else (0, 0)
@@ -130,8 +149,11 @@ def transcribe_and_search(
                     score = fuzz.partial_ratio(target_line.lower(), span_text.lower())
                     if score >= MATCH_THRESHOLD:
                         cand = Candidate(
-                            start_sec=span[0].start, end_sec=span[-1].end,
-                            text=span_text, source="audio_speech", score=score,
+                            start_sec=span[0].start,
+                            end_sec=span[-1].end,
+                            text=span_text,
+                            source="audio_speech",
+                            score=score,
                         )
                         candidates.append(cand)
                         ts_m, ts_s = int(cand.start_sec // 60), int(cand.start_sec % 60)
@@ -145,14 +167,18 @@ def transcribe_and_search(
                                 "timestamp": f"{ts_m:02d}:{ts_s:02d}",
                             })
 
-        # Early exit optimization: if high confidence first match found, stop decoding further
+        # Early exit optimization: stop if a highly confident match (>=95%) is found
         if candidates and any(c.score >= 95.0 for c in candidates):
             print("      [ASR] High confidence match found (>=95%). Stopping early scan.", flush=True)
             if progress_cb:
-                progress_cb({"type": "stage", "stage": "asr_early_exit", "message": "High confidence match found (>=95%). Finalizing ASR..."})
+                progress_cb({
+                    "type": "stage",
+                    "stage": "asr_early_exit",
+                    "message": "High confidence match found (>=95%). Finalizing ASR...",
+                })
             break
 
-    # collapse overlapping candidates, keep best score per cluster
+    # Collapse overlapping candidates within 2 seconds, keeping the highest score
     candidates.sort(key=lambda c: c.start_sec)
     merged: list[Candidate] = []
     for c in candidates:
@@ -169,12 +195,7 @@ def find_audio_candidates(
     target_line: str,
     progress_cb: Optional[Callable[[dict], None]] = None,
 ) -> tuple[Candidate | None, list[Candidate], dict]:
-    """
-    1. Always runs Whisper speech-to-text on the extracted audio.
-    2. If platform transcription (captions) exists, searches it as well.
-    3. Compares and correlates both sources.
-    Returns: (best_candidate, all_candidates, comparison_info)
-    """
+    """Finds candidates across audio Whisper transcription and optional embedded platform subtitles."""
     if progress_cb:
         progress_cb({"type": "stage", "stage": "asr_start", "message": "Running Faster-Whisper ASR on audio track..."})
     print("      [1/2] Running Faster-Whisper ASR on audio track...")
@@ -184,7 +205,7 @@ def find_audio_candidates(
         total_duration=video_info.duration_sec,
         progress_cb=progress_cb,
     )
-    
+
     caption_candidates = []
     if video_info.has_subs and video_info.subs_path:
         if progress_cb:
@@ -195,14 +216,14 @@ def find_audio_candidates(
         if progress_cb:
             progress_cb({"type": "stage", "stage": "captions_none", "message": "No inbuilt platform transcription found. Relying on audio Whisper."})
         print("      [2/2] No inbuilt platform transcription found. Relying on audio Whisper.")
-    
+
     comparison = {
         "audio_speech_found": len(audio_candidates) > 0,
         "platform_captions_found": len(caption_candidates) > 0,
         "audio_timestamp": None,
         "caption_timestamp": None,
         "delta_sec": None,
-        "note": ""
+        "note": "",
     }
 
     if audio_candidates:
@@ -230,8 +251,8 @@ def find_audio_candidates(
             print(f"      [+] {comparison['note']}")
 
     all_candidates = sorted(audio_candidates + caption_candidates, key=lambda c: c.start_sec)
-    
-    # Priority: audio speech timestamp is the ground truth for when it's spoken; fallback to caption
+
+    # Priority: audio speech timestamp is the ground truth for when words are spoken
     best = None
     if audio_candidates:
         best = max(audio_candidates, key=lambda c: c.score)

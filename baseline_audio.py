@@ -1,10 +1,14 @@
-"""Baseline Audio-only Dialogue Frame Finder
-Extracts dialogue timestamps from audio using Faster-Whisper and calculates approximate frame number.
-Each video run is isolated in its own subfolder inside the output directory.
+"""Baseline Audio Dialogue Frame Finder
+
+Finds the exact timestamp and video frame for a target dialogue line using:
+1. Faster-Whisper ASR with Voice Activity Detection (VAD)
+2. Fuzzy matching (RapidFuzz) with early-exit optimization
+3. Precise OpenCV frame extraction at calculated video FPS
 """
 import argparse
 import json
 from pathlib import Path
+from typing import Callable, Optional
 import cv2
 
 from src.ingest import get_video_info, get_video_folder_name
@@ -12,13 +16,15 @@ from src.asr_search import find_audio_candidates
 
 
 def seconds_to_timestamp(sec: float) -> str:
+    """Format seconds into HH:MM:SS.sss string."""
     h = int(sec // 3600)
     m = int((sec % 3600) // 60)
     s = sec % 60
     return f"{h:02d}:{m:02d}:{s:06.3f}"
 
 
-def save_frame_at_index(video_path: Path, frame_number: int, out_path: Path):
+def save_frame_at_index(video_path: Path, frame_number: int, out_path: Path) -> Path:
+    """Extract and save a specific video frame using OpenCV."""
     cap = cv2.VideoCapture(str(video_path))
     cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
     ok, frame = cap.read()
@@ -30,26 +36,25 @@ def save_frame_at_index(video_path: Path, frame_number: int, out_path: Path):
     return out_path
 
 
-from typing import Callable, Optional
-
-
 def run_audio_baseline(
     url: str,
     target_line: str,
-    outdir: str,
-    folder: str | None = None,
+    outdir: str = "./output",
+    folder: Optional[str] = None,
     progress_cb: Optional[Callable[[dict], None]] = None,
-):
-    # Determine per-video folder name
+) -> Optional[dict]:
+    """Main pipeline execution for audio-based dialogue frame location."""
+    # 1. Prepare isolated workspace directory
     subfolder_name = folder or get_video_folder_name(url)
     target_outdir = Path(outdir) / subfolder_name
     target_outdir.mkdir(parents=True, exist_ok=True)
 
+    # 2. Stage 0: Ingestion & Probing
     if progress_cb:
         progress_cb({"type": "stage", "stage": "ingest_start", "message": f"Downloading video & extracting audio from {url}..."})
     print(f"\n==========================================")
     print(f"[Stage 0] Ingestion: {url}")
-    print(f"Destination Folder: {target_outdir}")
+    print(f"Destination: {target_outdir}")
     print(f"==========================================")
     info = get_video_info(url, target_outdir, progress_cb=progress_cb)
     print(f"Video Info:")
@@ -69,6 +74,7 @@ def run_audio_baseline(
             "folder": subfolder_name,
         })
 
+    # 3. Stage 1: ASR Speech Search
     print(f"\n==========================================")
     print(f"[Stage 1] ASR Audio Search for: '{target_line}'")
     print(f"==========================================")
@@ -80,6 +86,7 @@ def run_audio_baseline(
             progress_cb({"type": "error", "message": f"No dialogue match found for: '{target_line}'"})
         return None
 
+    # 4. Stage 2: Frame Extraction
     if progress_cb:
         progress_cb({"type": "stage", "stage": "extract_frame", "message": "Capturing target video frame image..."})
 
@@ -88,10 +95,9 @@ def run_audio_baseline(
     frame_number = int(round(ts_sec * info.fps))
     frame_img_path = target_outdir / f"frame_{frame_number}.png"
 
-    # Extract the frame image
     save_frame_at_index(info.video_path, frame_number, frame_img_path)
 
-    # Minimum required output format
+    # 5. Format and Save Output
     print(f"\n==========================================")
     print(f"OUTPUT RESULT:")
     print(f"==========================================")
@@ -100,17 +106,7 @@ def run_audio_baseline(
     print(f"Text      : \"{best.text}\"")
     print(f"Image     : {frame_img_path}")
 
-    if comparison["audio_timestamp"] and comparison["caption_timestamp"]:
-        print(f"\n--- Cross-Reference Summary ---")
-        print(f"  Spoken Audio Time : {comparison['audio_timestamp']}")
-        print(f"  Inbuilt Caption   : {comparison['caption_timestamp']}")
-        if comparison["delta_sec"]:
-            print(f"  Offset / Delta    : {comparison['delta_sec']}s")
-        if comparison["note"]:
-            print(f"  Analysis          : {comparison['note']}")
-
     relative_image_path = f"/output/{subfolder_name}/frame_{frame_number}.png"
-
     result_data = {
         "timestamp": timestamp_str,
         "timestamp_sec": ts_sec,
@@ -128,7 +124,7 @@ def run_audio_baseline(
     }
 
     result_json_path = target_outdir / "result.json"
-    with open(result_json_path, "w") as f:
+    with open(result_json_path, "w", encoding="utf-8") as f:
         json.dump(result_data, f, indent=2)
 
     print(f"\n[+] Full result saved to: {result_json_path}")
@@ -139,7 +135,7 @@ def run_audio_baseline(
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Baseline Audio-only Dialogue Frame Finder")
+    parser = argparse.ArgumentParser(description="Dialogue Frame Finder (Audio Baseline)")
     parser.add_argument("--url", required=True, help="Video URL (YouTube, ok.ru, Vimeo, direct link)")
     parser.add_argument("--line", required=True, help="Target dialogue to find")
     parser.add_argument("--outdir", default="./output", help="Root output directory (default: ./output)")
@@ -147,4 +143,3 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     run_audio_baseline(args.url, args.line, args.outdir, args.folder)
-

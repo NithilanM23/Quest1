@@ -1,12 +1,18 @@
-"""Stage 0: download the source video/audio and read ground-truth metadata."""
+"""Stage 0: Ingest & Probe
+
+Handles video downloading via yt-dlp, audio extraction via FFmpeg,
+and stream metadata probing via FFprobe.
+"""
 import json
-import os
+import re
+import shutil
 import subprocess
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable, Optional
+from urllib.parse import urlparse
 
-# Ensure ffmpeg & ffprobe are on PATH in all environments
+# Ensure standalone FFmpeg binaries are available on PATH
 try:
     import static_ffmpeg
     static_ffmpeg.add_paths()
@@ -16,6 +22,7 @@ except Exception:
 
 @dataclass
 class VideoInfo:
+    """Metadata container for downloaded video and extracted audio."""
     video_path: Path
     audio_path: Path
     fps: float
@@ -23,22 +30,20 @@ class VideoInfo:
     width: int
     height: int
     has_subs: bool
-    subs_path: Path | None
+    subs_path: Optional[Path]
 
 
 def get_video_folder_name(url: str) -> str:
     """Generate a clean, sanitized directory name for any video URL."""
-    import re
-    from urllib.parse import urlparse
-
     clean_url = url.strip()
-    # YouTube URL
-    yt_match = re.search(r'(?:v=|\/)([a-zA-Z0-9_-]{11})(?:[&?]|$)', clean_url)
+
+    # YouTube URL pattern
+    yt_match = re.search(r"(?:v=|\/)([a-zA-Z0-9_-]{11})(?:[&?]|$)", clean_url)
     if "youtu" in clean_url and yt_match:
         return f"youtube_{yt_match.group(1)}"
 
-    # ok.ru URL
-    ok_match = re.search(r'ok\.ru/video/(\d+)', clean_url)
+    # ok.ru URL pattern
+    ok_match = re.search(r"ok\.ru/video/(\d+)", clean_url)
     if ok_match:
         return f"ok_ru_{ok_match.group(1)}"
 
@@ -54,36 +59,34 @@ def get_video_folder_name(url: str) -> str:
         return f"video_{hashlib.md5(clean_url.encode()).hexdigest()[:8]}"
 
 
-
-from typing import Callable, Optional
-
-
 def download(url: str, outdir: Path, progress_cb: Optional[Callable[[dict], None]] = None) -> Path:
-    """Download best video+audio via yt-dlp. Works across hosts (YouTube,
-    ok.ru, Vimeo, etc.) through one consistent interface."""
+    """Download video+audio using yt-dlp with real-time progress callbacks."""
     import yt_dlp
-    import shutil
 
     outdir.mkdir(parents=True, exist_ok=True)
     video_exts = {".mp4", ".mkv", ".avi", ".mov", ".webm", ".ts", ".m4v"}
-    existing = [p for p in outdir.glob("source.*") if p.suffix.lower() in video_exts and ".f" not in p.name and p.stat().st_size > 500*1024]
+
+    # 1. Cache hit check
+    existing = [
+        p for p in outdir.glob("source.*")
+        if p.suffix.lower() in video_exts and ".f" not in p.name and p.stat().st_size > 500 * 1024
+    ]
     if existing:
         print(f"      [Cache hit] Using existing video at {existing[0]}")
         if progress_cb:
             progress_cb({"type": "download_progress", "pct": 100.0, "message": "Using cached video file", "is_cache": True})
         return existing[0]
 
-    # Find directory containing ffmpeg.exe
+    # 2. Locate FFmpeg binary
     ffmpeg_dir = None
     try:
-        import static_ffmpeg
-        static_ffmpeg.add_paths()
         which_ff = shutil.which("ffmpeg")
         if which_ff:
             ffmpeg_dir = str(Path(which_ff).parent)
     except Exception:
         pass
 
+    # 3. yt-dlp real-time progress hook
     def ydl_progress_hook(d):
         if not progress_cb:
             return
@@ -93,6 +96,8 @@ def download(url: str, outdir: Path, progress_cb: Optional[Callable[[dict], None
             downloaded = d.get("downloaded_bytes") or 0
             speed = d.get("speed") or 0
             eta = d.get("eta") or 0
+
+            # Percentage calculation
             if total > 0:
                 pct = min(100.0, (downloaded / total) * 100.0)
             elif d.get("fragment_count") and d["fragment_count"] > 0:
@@ -134,6 +139,11 @@ def download(url: str, outdir: Path, progress_cb: Optional[Callable[[dict], None
         "retries": 10,
         "fragment_retries": 10,
         "socket_timeout": 30,
+        "http_headers": {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "Accept": "*/*",
+            "Accept-Language": "en-US,en;q=0.9",
+        },
         "progress_hooks": [ydl_progress_hook],
         "extractor_args": {
             "youtube": {
@@ -171,8 +181,11 @@ def download(url: str, outdir: Path, progress_cb: Optional[Callable[[dict], None
         with yt_dlp.YoutubeDL(fallback_opts) as ydl:
             ydl.download([url])
 
-    # Identify video file (excluding partial or separate audio files)
-    matches = [p for p in outdir.glob("source.*") if p.suffix.lower() in video_exts and ".f" not in p.name and not p.name.endswith(".part")]
+    # 4. Resolve output video file
+    matches = [
+        p for p in outdir.glob("source.*")
+        if p.suffix.lower() in video_exts and ".f" not in p.name and not p.name.endswith(".part")
+    ]
     if not matches:
         matches = [p for p in outdir.glob("*.*") if p.suffix.lower() in video_exts and not p.name.endswith(".part")]
     if not matches:
@@ -181,6 +194,7 @@ def download(url: str, outdir: Path, progress_cb: Optional[Callable[[dict], None
 
 
 def extract_audio(video_path: Path, outdir: Path) -> Path:
+    """Extract audio track as 16kHz mono WAV (optimal for Whisper ASR)."""
     audio_path = outdir / "audio.wav"
     cmd = [
         "ffmpeg", "-y", "-i", str(video_path),
@@ -192,6 +206,7 @@ def extract_audio(video_path: Path, outdir: Path) -> Path:
 
 
 def probe(video_path: Path) -> dict:
+    """Read stream metadata (dimensions, FPS, duration) via ffprobe."""
     cmd = [
         "ffprobe", "-v", "quiet", "-print_format", "json",
         "-show_format", "-show_streams", str(video_path),
@@ -201,15 +216,17 @@ def probe(video_path: Path) -> dict:
 
 
 def get_video_info(url: str, outdir: Path, progress_cb: Optional[Callable[[dict], None]] = None) -> VideoInfo:
+    """Orchestrates video download, audio extraction, and stream probing."""
     video_path = download(url, outdir, progress_cb=progress_cb)
+
     if progress_cb:
         progress_cb({"type": "stage", "stage": "audio_extract", "message": "Extracting audio track (16kHz mono WAV)..."})
     audio_path = extract_audio(video_path, outdir)
     meta = probe(video_path)
 
-    v_stream = next(s for s in meta["streams"] if s["codec_type"] == "video")
-    
-    # Handle FPS calculation robustly
+    v_stream = next(s for s in meta["streams"] if s.get("codec_type") == "video")
+
+    # FPS calculation
     r_fps = v_stream.get("r_frame_rate", "30/1")
     if "/" in r_fps:
         num, den = r_fps.split("/")
@@ -234,4 +251,3 @@ def get_video_info(url: str, outdir: Path, progress_cb: Optional[Callable[[dict]
         has_subs=subs_path is not None,
         subs_path=subs_path,
     )
-

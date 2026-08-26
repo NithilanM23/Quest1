@@ -1,18 +1,17 @@
-"""Backend server for Dialogue Frame Finder (Baseline Audio).
+"""Web Server for Dialogue Frame Finder
 
 Provides:
-- Web static files serving (HTML/CSS/JS in /public)
-- Output image and file serving (/output/*)
+- Static asset serving (HTML/CSS/JS in /public)
+- Result image and metadata serving (/output/*)
 - Real-time Server-Sent Events (SSE) streaming on /api/stream?url=...&line=...
-- Samples & history on /api/samples
+- Sample presets on /api/samples
+- Health check on /api/health
 """
 import argparse
 import json
-import os
 import queue
 import sys
 import threading
-import time
 import traceback
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -24,7 +23,7 @@ BASE_DIR = Path(__file__).resolve().parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
-# Reconfigure stdout/stderr for utf-8 on Windows
+# Ensure UTF-8 output on Windows
 if sys.platform == "win32":
     try:
         sys.stdout.reconfigure(encoding="utf-8")
@@ -42,11 +41,13 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class AppRequestHandler(SimpleHTTPRequestHandler):
+    """HTTP Request Handler supporting static files, API endpoints, and SSE streams."""
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(BASE_DIR), **kwargs)
 
     def end_headers(self):
-        # Allow CORS and prevent caching for development
+        # Enable CORS and disable caching during active development
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "*")
@@ -60,18 +61,14 @@ class AppRequestHandler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
 
-        if path == "/" or path == "/index.html":
+        if path in ("/", "/index.html"):
             return self._serve_file(PUBLIC_DIR / "index.html", "text/html; charset=utf-8")
 
         elif path.startswith("/public/"):
-            rel_path = path[len("/public/"):]
-            file_path = PUBLIC_DIR / rel_path
-            return self._serve_file(file_path)
+            return self._serve_file(PUBLIC_DIR / path[len("/public/"):])
 
         elif path.startswith("/output/"):
-            rel_path = path[len("/output/"):]
-            file_path = OUTPUT_DIR / rel_path
-            return self._serve_file(file_path)
+            return self._serve_file(OUTPUT_DIR / path[len("/output/"):])
 
         elif path == "/api/samples":
             return self._handle_samples()
@@ -87,7 +84,6 @@ class AppRequestHandler(SimpleHTTPRequestHandler):
             return self._handle_stream(parsed.query)
 
         else:
-            # Fallback to default handler
             super().do_GET()
 
     def _serve_file(self, file_path: Path, content_type: str | None = None):
@@ -144,7 +140,7 @@ class AppRequestHandler(SimpleHTTPRequestHandler):
                 "url": "https://www.youtube.com/watch?v=8s2ODsSscWo",
                 "line": "Hello world",
                 "tag": "YouTube Clip",
-            }
+            },
         ]
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "application/json")
@@ -163,7 +159,7 @@ class AppRequestHandler(SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps({"error": "Missing 'url' or 'line' query parameter"}).encode("utf-8"))
             return
 
-        # Setup SSE headers
+        # Initialize SSE headers
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache, no-transform")
@@ -204,7 +200,7 @@ class AppRequestHandler(SimpleHTTPRequestHandler):
                     self.wfile.write(payload.encode("utf-8"))
                     self.wfile.flush()
                 except queue.Empty:
-                    # Heartbeat comment to keep connection alive
+                    # Heartbeat comment to keep SSE connection alive
                     self.wfile.write(b": keepalive\n\n")
                     self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError):
@@ -214,13 +210,14 @@ class AppRequestHandler(SimpleHTTPRequestHandler):
 
 
 def run_server(port: int = 8000, host: str = "0.0.0.0"):
+    """Starts the multi-threaded web server."""
     server_address = (host, port)
     httpd = ThreadingHTTPServer(server_address, AppRequestHandler)
-    print(f"==================================================")
-    print(f"[*] Dialogue Frame Finder UI Server Running!")
+    print("==================================================")
+    print("[*] Dialogue Frame Finder UI Server Running!")
     print(f"[*] Local Access:   http://localhost:{port}")
     print(f"[*] Network Access: http://127.0.0.1:{port}")
-    print(f"==================================================")
+    print("==================================================")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
