@@ -36,6 +36,8 @@ Source: "server.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "baseline_audio.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "requirements.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion isreadme
+Source: "prompts.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "design_and_thinking.md"; DestDir: "{app}"; Flags: ignoreversion
 
 ; Public Web Frontend UI Assets
 Source: "public\*"; DestDir: "{app}\public"; Flags: ignoreversion recursesubdirs createallsubdirs

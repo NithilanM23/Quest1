@@ -16,3 +16,4 @@ pipeline.py
 src/ocr_search.py
 src/reconcile.py
 src/verify.py
+~$est1_prompts.docx
