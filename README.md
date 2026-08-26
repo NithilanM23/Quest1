@@ -1,6 +1,6 @@
 # Dialogue Frame Finder
 
-A lightweight tool that takes any video URL and a line of dialogue, finds the exact moment it was spoken, and grabs that exact video frame.
+A lightweight tool that takes any video URL and any given dialogue, finds the exact moment it was spoken, and grabs that exact video frame.
 
 Works with YouTube, ok.ru, Vimeo, or direct video links.
 
