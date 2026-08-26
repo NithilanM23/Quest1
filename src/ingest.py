@@ -55,14 +55,22 @@ def get_video_folder_name(url: str) -> str:
 
 
 
-def download(url: str, outdir: Path) -> Path:
+from typing import Callable, Optional
+
+
+def download(url: str, outdir: Path, progress_cb: Optional[Callable[[dict], None]] = None) -> Path:
     """Download best video+audio via yt-dlp. Works across hosts (YouTube,
     ok.ru, Vimeo, etc.) through one consistent interface."""
+    import yt_dlp
+    import shutil
+
     outdir.mkdir(parents=True, exist_ok=True)
-    video_exts = {".mp4", ".mkv", ".avi", ".mov"}
+    video_exts = {".mp4", ".mkv", ".avi", ".mov", ".webm", ".ts", ".m4v"}
     existing = [p for p in outdir.glob("source.*") if p.suffix.lower() in video_exts and ".f" not in p.name and p.stat().st_size > 500*1024]
     if existing:
         print(f"      [Cache hit] Using existing video at {existing[0]}")
+        if progress_cb:
+            progress_cb({"type": "download_progress", "pct": 100.0, "message": "Using cached video file", "is_cache": True})
         return existing[0]
 
     # Find directory containing ffmpeg.exe
@@ -70,42 +78,105 @@ def download(url: str, outdir: Path) -> Path:
     try:
         import static_ffmpeg
         static_ffmpeg.add_paths()
-        import shutil
         which_ff = shutil.which("ffmpeg")
         if which_ff:
             ffmpeg_dir = str(Path(which_ff).parent)
     except Exception:
         pass
 
-    out_template = str(outdir / "source.%(ext)s")
-    cmd = [
-        sys.executable, "-m", "yt_dlp",
-        "-N", "4",
-        "--retries", "10",
-        "--fragment-retries", "10",
-        "--extractor-args", "youtube:player_client=android,web,ios",
-        "--no-check-certificates",
-    ]
-    if ffmpeg_dir:
-        cmd.extend(["--ffmpeg-location", ffmpeg_dir])
+    def ydl_progress_hook(d):
+        if not progress_cb:
+            return
+        status = d.get("status")
+        if status == "downloading":
+            total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+            downloaded = d.get("downloaded_bytes") or 0
+            speed = d.get("speed") or 0
+            eta = d.get("eta") or 0
+            if total > 0:
+                pct = min(100.0, (downloaded / total) * 100.0)
+            elif d.get("fragment_count") and d["fragment_count"] > 0:
+                pct = min(100.0, (d.get("fragment_index", 0) / d["fragment_count"]) * 100.0)
+            else:
+                pct = 0.0
 
-    cmd.extend([
-        "-f", "bestvideo*[height<=720]+bestaudio/best[height<=720]/bestvideo*+bestaudio/best/b",
-        "--merge-output-format", "mp4",
-        "--write-subs", "--write-auto-subs", "--sub-langs", "en,en-orig,en-US",
-        "--no-abort-on-error",
-        "-o", out_template,
-        url,
-    ])
-    subprocess.run(cmd, check=True)
-    
+            progress_cb({
+                "type": "download_progress",
+                "pct": round(pct, 1),
+                "downloaded_bytes": downloaded,
+                "total_bytes": total,
+                "speed_bytes": round(speed, 1),
+                "eta_sec": round(eta, 1),
+                "filename": Path(d.get("filename", "video")).name,
+            })
+        elif status == "finished":
+            progress_cb({
+                "type": "download_progress",
+                "pct": 100.0,
+                "downloaded_bytes": d.get("total_bytes") or 0,
+                "total_bytes": d.get("total_bytes") or 0,
+                "speed_bytes": 0,
+                "eta_sec": 0,
+                "message": "Download finished, processing stream...",
+            })
+
+    out_template = str(outdir / "source.%(ext)s")
+    ydl_opts = {
+        "outtmpl": out_template,
+        "format": "bestvideo[height<=720]+bestaudio/best[height<=720]/bestvideo+bestaudio/best",
+        "merge_output_format": "mp4",
+        "writesubtitles": True,
+        "writeautomaticsub": True,
+        "subtitleslangs": ["en.*", "en", "en-US", "en-orig"],
+        "nocheckcertificate": True,
+        "no_check_certificates": True,
+        "prefer_insecure": True,
+        "retries": 10,
+        "fragment_retries": 10,
+        "socket_timeout": 30,
+        "progress_hooks": [ydl_progress_hook],
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "web", "ios"]
+            }
+        },
+        "quiet": False,
+        "no_warnings": False,
+        "ignoreerrors": False,
+    }
+    if ffmpeg_dir:
+        ydl_opts["ffmpeg_location"] = ffmpeg_dir
+
+    print(f"      [yt-dlp] Downloading media from: {url}")
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+    except Exception as e:
+        print(f"      [yt-dlp] Primary download attempt warning: {e}. Retrying with basic format...")
+        fallback_opts = {
+            "outtmpl": out_template,
+            "format": "best",
+            "nocheckcertificate": True,
+            "no_check_certificates": True,
+            "prefer_insecure": True,
+            "retries": 5,
+            "socket_timeout": 30,
+            "progress_hooks": [ydl_progress_hook],
+            "quiet": False,
+            "no_warnings": True,
+            "ignoreerrors": False,
+        }
+        if ffmpeg_dir:
+            fallback_opts["ffmpeg_location"] = ffmpeg_dir
+        with yt_dlp.YoutubeDL(fallback_opts) as ydl:
+            ydl.download([url])
+
     # Identify video file (excluding partial or separate audio files)
-    matches = [p for p in outdir.glob("source.*") if p.suffix.lower() in video_exts and ".f" not in p.name]
+    matches = [p for p in outdir.glob("source.*") if p.suffix.lower() in video_exts and ".f" not in p.name and not p.name.endswith(".part")]
     if not matches:
-        # Fallback to any mp4 in outdir
-        matches = list(outdir.glob("*.mp4"))
+        matches = [p for p in outdir.glob("*.*") if p.suffix.lower() in video_exts and not p.name.endswith(".part")]
     if not matches:
-        raise RuntimeError("yt-dlp did not produce a merged output video file")
+        raise RuntimeError(f"Could not download or locate video file from {url}. Please check URL accessibility or internet connection.")
     return matches[0]
 
 
@@ -129,8 +200,10 @@ def probe(video_path: Path) -> dict:
     return json.loads(out.stdout)
 
 
-def get_video_info(url: str, outdir: Path) -> VideoInfo:
-    video_path = download(url, outdir)
+def get_video_info(url: str, outdir: Path, progress_cb: Optional[Callable[[dict], None]] = None) -> VideoInfo:
+    video_path = download(url, outdir, progress_cb=progress_cb)
+    if progress_cb:
+        progress_cb({"type": "stage", "stage": "audio_extract", "message": "Extracting audio track (16kHz mono WAV)..."})
     audio_path = extract_audio(video_path, outdir)
     meta = probe(video_path)
 

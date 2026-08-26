@@ -730,6 +730,59 @@ body {
   color: var(--text-primary);
 }
 
+.step-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.download-pct-badge {
+  font-family: var(--font-mono);
+  font-size: 0.725rem;
+  font-weight: 700;
+  color: var(--accent-secondary);
+  background: rgba(6, 182, 212, 0.15);
+  border: 1px solid rgba(6, 182, 212, 0.3);
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+}
+
+/* Live Download Box inside Step 1 */
+.download-live-box {
+  margin-top: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.download-sub-bar {
+  height: 4px;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+.download-sub-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #6366F1, #06B6D4);
+  transition: width 0.2s ease-out;
+}
+
+.download-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 0.675rem;
+  color: var(--text-muted);
+}
+
+.download-meta-speed {
+  color: var(--accent-secondary);
+  font-weight: 600;
+}
+
 /* Live ASR Box inside Step 3 */
 .asr-live-box {
   margin-top: 0.6rem;

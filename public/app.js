@@ -46,6 +46,13 @@ document.addEventListener('DOMContentLoaded', () => {
   let transcribedSegmentCount = 0;
   let lastAppendedText = '';
 
+  // Download Progress Elements
+  const downloadPctBadge = document.getElementById('downloadPctBadge');
+  const downloadLiveBox = document.getElementById('downloadLiveBox');
+  const downloadSubFill = document.getElementById('downloadSubFill');
+  const downloadMetaSize = document.getElementById('downloadMetaSize');
+  const downloadMetaSpeed = document.getElementById('downloadMetaSpeed');
+
   // Terminal Logs
   const terminalDrawer = document.getElementById('terminalDrawer');
   const terminalToggle = document.getElementById('terminalToggle');
@@ -154,12 +161,25 @@ document.addEventListener('DOMContentLoaded', () => {
     };
   }
 
+  // Format bytes to human readable string
+  function formatBytes(bytes) {
+    if (!bytes || bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  }
+
   // Handle Incoming SSE Stream Events
   function handleStreamEvent(data) {
     totalEventsCount++;
     logCount.textContent = `${totalEventsCount} event${totalEventsCount === 1 ? '' : 's'}`;
 
     switch (data.type) {
+      case 'download_progress':
+        handleDownloadProgress(data);
+        break;
+
       case 'stage':
         handleStageUpdate(data);
         break;
@@ -190,6 +210,43 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // Live Download Progress Handler
+  function handleDownloadProgress(data) {
+    downloadLiveBox.classList.remove('hidden');
+    downloadPctBadge.classList.remove('hidden');
+
+    const pct = Math.max(0, Math.min(100, data.pct || 0));
+    downloadPctBadge.textContent = `${pct.toFixed(1)}%`;
+    downloadSubFill.style.width = `${pct}%`;
+
+    // Map download progress (0-100%) to initial overall progress (5% -> 20%)
+    const overallPct = 5 + (pct * 0.15);
+    setProgress(overallPct);
+
+    if (data.is_cache) {
+      document.getElementById('step-ingest-desc').textContent = 'Using cached local video stream';
+      downloadMetaSize.textContent = '⚡ Cached media';
+      downloadMetaSpeed.textContent = 'Ready';
+      return;
+    }
+
+    const downloadedStr = formatBytes(data.downloaded_bytes);
+    const totalStr = data.total_bytes > 0 ? formatBytes(data.total_bytes) : 'Estimating...';
+    downloadMetaSize.textContent = `${downloadedStr} / ${totalStr}`;
+
+    if (data.speed_bytes > 0) {
+      const speedStr = `${formatBytes(data.speed_bytes)}/s`;
+      downloadMetaSpeed.textContent = speedStr;
+      currentActionText.textContent = `Downloading video: ${pct.toFixed(1)}% (${downloadedStr} / ${totalStr} @ ${speedStr})`;
+    } else {
+      currentActionText.textContent = `Downloading video: ${pct.toFixed(1)}% (${downloadedStr} / ${totalStr})`;
+    }
+
+    if (data.eta_sec && data.eta_sec > 0) {
+      updateEtaDisplay(data.eta_sec + 10);
+    }
+  }
+
   // Stage Transitions
   function handleStageUpdate(data) {
     currentActionText.textContent = data.message;
@@ -197,7 +254,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (data.stage === 'ingest_start') {
       setStepState(stepIngest, 'active');
-      setProgress(10);
+      downloadLiveBox.classList.remove('hidden');
+      downloadPctBadge.classList.remove('hidden');
+      setProgress(5);
+    } else if (data.stage === 'audio_extract') {
+      setStepState(stepIngest, 'completed');
+      setStepState(stepAudio, 'active');
+      downloadPctBadge.textContent = '100%';
+      downloadSubFill.style.width = '100%';
+      downloadMetaSpeed.textContent = 'Completed';
+      setProgress(20);
     } else if (data.stage === 'asr_init' || data.stage === 'asr_start') {
       setStepState(stepIngest, 'completed');
       setStepState(stepAudio, 'completed');
@@ -429,6 +495,14 @@ document.addEventListener('DOMContentLoaded', () => {
     [stepIngest, stepAudio, stepAsr, stepSync, stepFrame].forEach((s) => {
       s.classList.remove('active', 'completed');
     });
+    downloadPctBadge.classList.add('hidden');
+    downloadLiveBox.classList.add('hidden');
+    downloadSubFill.style.width = '0%';
+    downloadPctBadge.textContent = '0%';
+    downloadMetaSize.textContent = '0 MB / 0 MB';
+    downloadMetaSpeed.textContent = '-- MB/s';
+    document.getElementById('step-ingest-desc').textContent = 'Downloading stream & probing metadata';
+
     asrLiveBox.classList.add('hidden');
     asrSubFill.style.width = '0%';
     asrTickerText.textContent = '"..."';

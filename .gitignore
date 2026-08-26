@@ -6,8 +6,11 @@ output/
 *.wav
 *.webm
 que/
-output/
-__init__.py
+dist/
+local_python/
+server.log
+server_out.log
+server_err.log
 # Temporarily ignored until visual (OCR) and LLM verification pipeline is integrated
 pipeline.py
 src/ocr_search.py

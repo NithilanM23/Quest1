@@ -51,7 +51,7 @@ def run_audio_baseline(
     print(f"[Stage 0] Ingestion: {url}")
     print(f"Destination Folder: {target_outdir}")
     print(f"==========================================")
-    info = get_video_info(url, target_outdir)
+    info = get_video_info(url, target_outdir, progress_cb=progress_cb)
     print(f"Video Info:")
     print(f"  FPS: {info.fps:.3f}")
     print(f"  Duration: {info.duration_sec:.2f}s ({int(info.duration_sec//60)}m {int(info.duration_sec%60)}s)")

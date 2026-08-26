@@ -13,10 +13,16 @@ import queue
 import sys
 import threading
 import time
+import traceback
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+
+# Ensure base directory is in sys.path
+BASE_DIR = Path(__file__).resolve().parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
 
 # Reconfigure stdout/stderr for utf-8 on Windows
 if sys.platform == "win32":
@@ -28,7 +34,6 @@ if sys.platform == "win32":
 
 from baseline_audio import run_audio_baseline
 
-BASE_DIR = Path(__file__).resolve().parent
 PUBLIC_DIR = BASE_DIR / "public"
 OUTPUT_DIR = BASE_DIR / "output"
 
@@ -224,8 +229,14 @@ def run_server(port: int = 8000, host: str = "0.0.0.0"):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Dialogue Frame Finder Web Server")
-    parser.add_argument("--port", type=int, default=8000, help="Port to run on (default: 8000)")
-    parser.add_argument("--host", type=str, default="0.0.0.0", help="Host address (default: 0.0.0.0)")
-    args = parser.parse_args()
-    run_server(port=args.port, host=args.host)
+    try:
+        parser = argparse.ArgumentParser(description="Dialogue Frame Finder Web Server")
+        parser.add_argument("--port", type=int, default=8000, help="Port to run on (default: 8000)")
+        parser.add_argument("--host", type=str, default="0.0.0.0", help="Host address (default: 0.0.0.0)")
+        args = parser.parse_args()
+        run_server(port=args.port, host=args.host)
+    except Exception as e:
+        sys.stderr.write(f"\n[FATAL SERVER ERROR] {e}\n")
+        traceback.print_exc(file=sys.stderr)
+        sys.stderr.flush()
+        sys.exit(1)

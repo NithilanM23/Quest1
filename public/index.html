@@ -192,8 +192,22 @@
               <span class="step-pulse"></span>
             </div>
             <div class="step-content">
-              <h3 class="step-title">Ingest & Probe</h3>
-              <p class="step-desc" id="step-ingest-desc">Downloading stream & parsing metadata</p>
+              <div class="step-title-row">
+                <h3 class="step-title">Ingest & Download</h3>
+                <span class="download-pct-badge hidden" id="downloadPctBadge">0%</span>
+              </div>
+              <p class="step-desc" id="step-ingest-desc">Downloading stream & probing metadata</p>
+              
+              <!-- Live Download Progress details -->
+              <div class="download-live-box hidden" id="downloadLiveBox">
+                <div class="download-sub-bar">
+                  <div class="download-sub-fill" id="downloadSubFill" style="width: 0%;"></div>
+                </div>
+                <div class="download-meta-row">
+                  <span class="download-meta-size" id="downloadMetaSize">0 MB / 0 MB</span>
+                  <span class="download-meta-speed" id="downloadMetaSpeed">-- MB/s</span>
+                </div>
+              </div>
             </div>
           </div>
 
